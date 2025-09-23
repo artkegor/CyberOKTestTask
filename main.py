@@ -1,6 +1,7 @@
 import sys
 import time
 import asyncio
+import argparse
 from typing import List, Tuple, Dict, Any, Optional
 
 import aiofiles
@@ -16,6 +17,31 @@ from config import (
     CLICKHOUSE_PASSWORD,
     CLICKHOUSE_DB,
 )
+
+
+# --- Настройка аргументов при запуске программы ---
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Обработка файла с результатами сканирования и вставка в ClickHouse."
+    )
+    parser.add_argument(
+        "file_path",
+        type=str,
+        help="Путь к обрабатываемому файлу"
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["extended", "short"],
+        default="extended",
+        help="Режим работы (по умолчанию: extended)"
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=10_000,
+        help="Размер батча (по умолчанию: 10000)"
+    )
+    return parser.parse_args()
 
 
 # --- Парсинг продуктов ---
@@ -176,49 +202,19 @@ async def main(file_path: str, extended_scan: bool, batch_size: int) -> None:
 
 
 # --- Точка входа ---
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print(
-            "Использование: python main.py <путь_к_файлу> [--extended | --short] [--batch_size N]\n\n"
-            "--extended   - расширенное сканирование с продуктами,\n"
-            "--short      - быстрое сканирование (сырые строки),\n"
-            "--batch_size - размер пачки для вставки (по умолчанию 10000)."
-        )
-        sys.exit(1)
-
-    file_path = sys.argv[1]
-
-    # Значения по умолчанию
-    extended = True
-    batch_size = 10_000
-
-    # Парсим дополнительные аргументы
-    args = sys.argv[2:]
-    i = 0
-    while i < len(args):
-        if args[i] == "--extended":
-            extended = True
-            i += 1
-        elif args[i] == "--short":
-            extended = False
-            i += 1
-        elif args[i] == "--batch_size":
-            if i + 1 < len(args):
-                try:
-                    batch_size = int(args[i + 1])
-                    i += 2
-                except ValueError:
-                    print("Ошибка: batch_size должен быть целым числом.")
-                    sys.exit(1)
-            else:
-                print("Ошибка: отсутствует значение для batch_size.")
-                sys.exit(1)
-        else:
-            print(f"Неверный аргумент: {args[i]}. Используйте --extended, --short или --batch_size")
-            sys.exit(1)
-
-    # --- Логирование ---
-    logger = setup_logging("app.log", level="INFO")
+async def main_wrapper():
+    args = parse_args()
+    extended = args.mode == "extended"
+    batch_size = args.batch_size
+    file_path = args.file_path
 
     # --- Запуск ---
-    asyncio.run(main(file_path, extended, batch_size))
+    await main(file_path, extended, batch_size)
+
+
+if __name__ == "__main__":
+    try:
+        logger = setup_logging("app.log", level="INFO")
+        asyncio.run(main_wrapper())
+    except KeyboardInterrupt:
+        sys.exit(0)
